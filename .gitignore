@@ -1,0 +1,14 @@
+.godot/
+build/
+shots/
+android/
+*.apk
+*.aab
+*.idsig
+*.keystore
+*.jks
+KEY_INFO*
+ph_*.png
+__pycache__/
+*.bak
+ph_*
