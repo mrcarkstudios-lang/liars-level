@@ -4,7 +4,13 @@ extends SceneTree
 
 func _initialize() -> void:
 	var n := LevelData.LEVELS.size()
+	var only := 0
+	var args := OS.get_cmdline_user_args()
+	if args.size() > 0:
+		only = int(args[0])
 	for i in n:
+		if only > 0 and i + 1 != only:
+			continue
 		var lv: Dictionary = LevelData.LEVELS[i]
 		var sol: Array = lv.sol
 		var total := 0

@@ -78,14 +78,7 @@ func _ready() -> void:
 	vp_w = get_viewport_rect().size.x
 	ox = maxf(0.0, (vp_w - 1280.0) * 0.5)
 	position.x = ox
-	if ox >= 90.0:
-		touch_l = Vector2(66, 598)
-		touch_r = Vector2(176, 598)
-		touch_j = Vector2(vp_w - 92, 580)
-	else:
-		touch_l = Vector2(110, 540)
-		touch_r = Vector2(250, 540)
-		touch_j = Vector2(vp_w - 110, 520)
+	_apply_layout()
 	idx = clampi(Game.level, 0, Game.level_count() - 1)
 	info = Game.level_info(idx)
 	pal = PALS[clampi(int(info.world) - 1, 0, 4)]
@@ -179,19 +172,41 @@ func _input(event: InputEvent) -> void:
 				if complete_shown:
 					_next()
 
+var ctrl_scale := 1.0
+var ctrl_alpha := 0.35
+
+## Reads the player's control settings (size, opacity, left-handed, dragged positions).
+func _apply_layout() -> void:
+	var lay := Game.touch_layout(get_viewport_rect().size)
+	touch_l = lay.l
+	touch_r = lay.r
+	touch_j = lay.j
+	ctrl_scale = lay.scale
+	ctrl_alpha = lay.alpha
+
 func _recalc_touch() -> void:
 	touch.left = false
 	touch.right = false
 	touch.jump = false
-	var mid := (touch_l.x + touch_r.x) * 0.5
+	# each finger drives the nearest button, within a generous radius
+	var centres := {"l": touch_l, "r": touch_r, "j": touch_j}
+	var radii := {"l": 50.0, "r": 50.0, "j": 64.0}
 	for k in touches:
 		var p: Vector2 = touches[k]
-		if p.distance_to(touch_l) < 90.0 or (p.x < mid and p.y > 430.0):
-			touch.left = true
-		if p.distance_to(touch_r) < 90.0 or (p.x >= mid and p.x < touch_r.x + 75.0 and p.y > 430.0):
-			touch.right = true
-		if p.distance_to(touch_j) < 115.0 or (p.x > vp_w - 330.0 and p.y > 400.0):
-			touch.jump = true
+		var best := ""
+		var best_d := 1e9
+		for n in centres:
+			var d: float = p.distance_to(centres[n])
+			if d < float(radii[n]) * ctrl_scale * 2.0 and d < best_d:
+				best = n
+				best_d = d
+		match best:
+			"l":
+				touch.left = true
+			"r":
+				touch.right = true
+			"j":
+				touch.jump = true
 
 func _read_input() -> Dictionary:
 	var l: bool = Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A) or touch.left
@@ -553,6 +568,12 @@ func _build_pause() -> void:
 		Game.save()
 		sf.text = "SOUND: %s" % ("ON" if Sfx.sfx_on else "OFF"))
 	box.add_child(sf)
+	var ctl := UI.button("CONTROLS", Color("5b6bff"), Vector2(380, 56), 28)
+	ctl.pressed.connect(func():
+		var ed := ControlsEditor.new()
+		ed.closed.connect(_apply_layout)
+		ui.add_child(ed))
+	box.add_child(ctl)
 	var lv := UI.button("LEVEL SELECT", Color("8a5bff"), Vector2(380, 56), 28)
 	lv.pressed.connect(func(): request.emit("levels", 0))
 	box.add_child(lv)
@@ -1166,18 +1187,20 @@ func _draw_tutorial() -> void:
 	UI.text(self, "JUMP", Vector2(746, 488), 24, Color(1, 1, 1, a), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 4)
 
 func _draw_touch() -> void:
-	var col := Color(1, 1, 1, 0.12)
-	var on := Color(1, 1, 1, 0.30)
-	var ring := Color(1, 1, 1, 0.32)
+	var al := ctrl_alpha
+	var col := Color(1, 1, 1, al * 0.34)
+	var on := Color(1, 1, 1, al * 0.86)
+	var ring := Color(1, 1, 1, minf(1.0, al * 0.9))
 	var o := Vector2(ox, 0)
 	var l := touch_l - o
 	var r := touch_r - o
 	var j := touch_j - o
-	var pts := [[l, 50.0, touch.left], [r, 50.0, touch.right], [j, 64.0, touch.jump]]
+	var k := ctrl_scale
+	var pts := [[l, 50.0 * k, touch.left], [r, 50.0 * k, touch.right], [j, 64.0 * k, touch.jump]]
 	for p in pts:
 		draw_circle(p[0], p[1], on if p[2] else col)
 		draw_arc(p[0], p[1], 0.0, TAU, 40, ring, 3.0, true)
-	var wcol := Color(1, 1, 1, 0.6)
-	draw_colored_polygon(PackedVector2Array([l + Vector2(-20, 0), l + Vector2(14, -20), l + Vector2(14, 20)]), wcol)
-	draw_colored_polygon(PackedVector2Array([r + Vector2(20, 0), r + Vector2(-14, -20), r + Vector2(-14, 20)]), wcol)
-	draw_colored_polygon(PackedVector2Array([j + Vector2(0, -26), j + Vector2(26, 14), j + Vector2(-26, 14)]), wcol)
+	var wcol := Color(1, 1, 1, minf(1.0, al * 1.7 + 0.15))
+	draw_colored_polygon(PackedVector2Array([l + Vector2(-20, 0) * k, l + Vector2(14, -20) * k, l + Vector2(14, 20) * k]), wcol)
+	draw_colored_polygon(PackedVector2Array([r + Vector2(20, 0) * k, r + Vector2(-14, -20) * k, r + Vector2(-14, 20) * k]), wcol)
+	draw_colored_polygon(PackedVector2Array([j + Vector2(0, -26) * k, j + Vector2(26, 14) * k, j + Vector2(-26, 14) * k]), wcol)

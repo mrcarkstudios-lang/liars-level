@@ -4,7 +4,7 @@
 Liar's Level
 
 ## Short description (max 80)
-The game lies to you. 24 sneaky levels, instant retry. Can you trust anything?
+The game lies to you. 50 sneaky levels, each harder than the last.
 
 ## Full description (max 4000)
 Welcome! Nothing here will hurt you. (That was a lie.)
@@ -18,7 +18,7 @@ HOW IT PLAYS
 - Levels are tiny: 5-10 seconds when you know the trick, a lifetime when you don't.
 
 WHAT'S INSIDE
-- 24 handmade levels in 5 worlds: Trust Issues, Crumbling Promises, Betrayal, Chaos Theory and Total Lies.
+- 50 handmade levels in 5 worlds: Trust Issues, Crumbling Promises, Betrayal, Chaos Theory and Total Lies. No level repeats, and every one is harder than the one before.
 - Hidden spikes, fake doors, crumbling and shy floors, ceiling blocks, invisible walls, runaway exits, buzzsaws, springs, moving platforms, rising lava, gravity pads and a fake "LEVEL CLEARED" screen.
 - The Liar: a smug narrator who taunts you on every death and reacts to how you play.
 - Ghost race: your best run is replayed as a ghost so you can beat yourself.
@@ -40,7 +40,7 @@ Game > Arcade (platformer)
 Platformer, Arcade, Casual, Single player, Pixel graphics, Offline (works without internet; ads need a connection)
 
 ## Release notes (first release, max 500)
-First release! 24 levels, 5 worlds, the Liar, ghost races, Daily Lie and 6 hero skins.
+Update: 26 new levels (50 in total) ordered from easy to hard, new trolling soundtrack, customisable touch controls (move, resize, left-handed), fix for Continue returning to a skipped level.
 
 ## Contact details (Store listing > Store settings)
 - Email: the support email you choose (Play Console shows it publicly; it is NOT written anywhere in this repo)

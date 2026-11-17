@@ -1,7 +1,7 @@
 # Liar's Level
 
 A short, brutal, funny **troll platformer**: the game lies to you, and the Liar (your smug narrator) laughs when you believe it.
-**24 levels in 5 worlds**, instant respawn, a ghost of your best run, daily challenge, 6 hero skins. Built in **Godot 4.3** (also verified on 4.7.2), GDScript only.
+**50 levels in 5 worlds, sorted so every level is harder than the last**, instant respawn, a ghost of your best run, daily challenge, 6 hero skins. Built in **Godot 4.3** (also verified on 4.7.2), GDScript only.
 
 > Licensing: levels, audio (synthesized by `tools/make_audio.py`) and the Liar mascot are original. Sprites, tiles, particles and
 > backgrounds come from **CC0** packs by Kenney, ansimuz and the Frogatto contributors (sources + licences in `art_src/SOURCES.md`,
@@ -88,3 +88,12 @@ For Play Store you need a release keystore and an AAB (set `gradle_build/use_gra
 2. `scripts/intro.gd`: the game intro (hero, lying sign, hidden spike, "I lied", logo slam).
 3. `scripts/menu.gd`: menu built from the pixel-art kit in `art/menu/`.
 Tap/click/any key skips each part. Dev flags: `--intro` starts at the game intro, `--menu` at the menu.
+
+## Level order and difficulty
+`tools/build_levels.py` scores every level (trap types and counts, wide gaps, number of jumps, solution length) and sorts all 50 levels from
+easiest to hardest. The first level is the tutorial and "The Liar" is always the finale. The score is saved as `diff` in `scripts/level_data.gd`;
+`tests/levels_test.gd` fails if two levels are identical or if the score is not strictly increasing. Old saves (24-level order) are remapped by level name.
+This is a model, not a substitute for playtesting: re-order if real players find a level easier/harder than its slot.
+
+## Controls settings
+Menu or pause menu > CONTROLS: drag each on-screen button, change size and opacity, left-handed mode, reset (`scripts/controls_editor.gd`, saved in `Game.data.controls`).

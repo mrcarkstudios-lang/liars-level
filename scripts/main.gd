@@ -28,6 +28,9 @@ func _ready() -> void:
 			start = "play"
 		if a == "--intro":
 			start = "intro"
+		if a == "--controls":
+			start = "menu"
+			Game.dev_controls = true
 		if a == "--menu":
 			start = "menu"
 		if a == "--levels":

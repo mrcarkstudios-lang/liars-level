@@ -280,12 +280,10 @@ for c in (9, 10, 11):
 a.put(15, 3, "Y").put(19, 15, "^").put(20, 15, "^").put(23, 15, "Y")
 a.put(26, 3, "v").put(27, 3, "v").put(28, 3, "Y").put(30, 15, "D")
 
-ORDER = ["Honest Start", "The Helpful Sign", "Wrong Door", "Greedy", "Bouncy Castle",
-         "Fragile", "Shy Floor", "Thwomp Alley", "Moving Day", "Checkpoint of Lies",
-         "Invisible Wall", "Do Not Press", "Buzzsaw Boulevard", "Mirror Mirror", "Congratulations!",
-         "Door Dodger", "Coin Trail", "Skyward", "Collapsing Stairs", "Floor Is Lava",
-         "Decoys", "Upside Down", "The Gauntlet", "The Liar"]
-WORLD_SIZES = [5, 5, 5, 5, 4]
+HERE = os.path.dirname(os.path.abspath(__file__))
+exec(open(os.path.join(HERE, "levels_extra.py"), encoding="utf-8").read())
+
+WORLD_SIZES = [10, 10, 10, 10, 10]
 QUIPS = {
     "Honest Start": "Relax. This one's honest. I promise.",
     "The Helpful Sign": "Signs are friends. Trust the signs.",
@@ -311,20 +309,93 @@ QUIPS = {
     "Upside Down": "Gravity is more of a suggestion.",
     "The Gauntlet": "A very short, very safe corridor.",
     "The Liar": "Oh. You actually made it.",
+    "Wrong Way": "Exit? It's right behind you. Probably.",
+    "Trust Fall": "Falling is just flying with extra steps.",
+    "Hurdle Race": "A friendly little jog.",
+    "Domino Bridge": "Sturdy bridge. Built by experts.",
+    "Crumble Climb": "Stairs! Totally permanent.",
+    "Moving Bridge": "The bridge is automatic. Very reliable.",
+    "Honest Button": "This button is honest. This time.",
+    "Cursed Trail": "A free coin. Nothing odd about that.",
+    "Hot Springs": "Very relaxing. Please keep moving.",
+    "Gravity Dance": "Down is up. Up is a suggestion.",
+    "Fake Victory": "You win! Walk into the door. Go on.",
+    "Door Chase": "Doors don't run. Don't be silly.",
+    "Trap Buffet": "Help yourself. Everything is safe.",
+    "Spike Hopper": "Four gentle little hops.",
+    "Marathon": "Six tricks. One breath.",
+    "Saw Marathon": "The alley is perfectly safe.",
+    "Spike Alley": "A short walk. Nothing dangerous.",
+    "Pit Chain": "Mind the gaps. They mind you.",
+    "Crumble Marathon": "Sturdy bridge. Built by experts. Again.",
+    "Spiked Descent": "Falling is easy. Landing is the lie.",
+    "Runaway Rally": "Doors can't run. Three times.",
+    "Gravity Gauntlet": "Up is down. Down is up. Left is left.",
+    "Ghost Steps": "There is definitely floor there.",
+    "Ferry Fare": "The ferry is reliable. Mostly.",
+    "Final Exam": "An easy test. Pencils down.",
+    "Lava Dash": "Lava? Never heard of it. Keep running.",
 }
+
+
+# ---------------------------------------------------------------- difficulty model
+# Weights per map symbol (floor-row spikes under pits count little: they only punish a miss).
+HAZ = {"^": 1.0, "v": 1.0, "h": 2.5, "F": 2.0, "o": 0.25, "p": 0.4, "c": 2.0, "i": 0.4, "G": 0.15, "b": 1.0, "d": 3.0,
+       "w": 4.0, "W": 4.0, "x": 4.0, "X": 4.0, "m": 4.0, "n": 4.0, "M": 5.0, "N": 5.0, "L": 8.0, "Y": 3.5, "B": 1.5,
+       "q": 4.0, "E": 6.0, "K": 5.0, "C": 0.2}
+
+
+def difficulty(l):
+    g = l.lines()
+    score = 0.0
+    sums = {}
+    for r, row in enumerate(g):
+        for ch in row:
+            w = HAZ.get(ch)
+            if w:
+                sums[ch] = sums.get(ch, 0.0) + w * (0.1 if (ch == "^" and r >= 16) else 1.0)
+    caps = {"^": 6.0, "v": 4.0, "o": 3.0, "p": 2.0, "i": 2.0, "G": 1.0, "C": 1.0}   # decorative bulk must not dominate
+    for ch, v in sums.items():
+        score += min(v, caps.get(ch, 99.0))
+    # gaps: wide pits are harder (a 3-cell gap is easy, 4+ needs precision)
+    run = 0
+    for c in range(W + 1):
+        open_ = c < W and g[16][c] in ".^p"       # crumbling (o) and invisible (i) floors can be walked on
+        if open_:
+            run += 1
+        else:
+            if run >= 4:
+                score += 2.0 * min(run - 3, 3) * (0.2 if any(ch in "mnMN" for row2 in g for ch in row2) else 1.0)
+            run = 0
+    dests = sum(1 for row in g for ch in row if ch in "efg")
+    score += 2.0 * dests
+    score += 1.8 * sum(1 for st in l.sol if st.startswith("J"))
+    score += 0.15 * len(l.sol)
+    return score
 
 
 def finalize():
     global L
-    by = {l.name: l for l in L}
-    assert set(by) == set(ORDER), (set(by) ^ set(ORDER))
-    L = [by[n] for n in ORDER]
+    for l in L:
+        l.diff = difficulty(l)
+    L.sort(key=lambda l: (l.name != "Honest Start", l.name == "The Liar", l.diff, l.name))   # tutorial first, the Liar is always the finale
+    last = L[-1]
+    last.diff = max(l.diff for l in L[:-1]) + 8.0
+    L[0].diff = 0.0                       # onboarding level: the baseline
+    # strictly increasing: nudge exact ties so every level is measurably harder than the one before
+    for i in range(1, len(L)):
+        if L[i].diff < L[i - 1].diff + 0.05:
+            L[i].diff = L[i - 1].diff + 0.05
+    assert L[0].name == "Honest Start", L[0].name
+    assert len({tuple(l.lines()) for l in L}) == len(L), "duplicate level map"
+    assert len({l.name for l in L}) == len(L), "duplicate level name"
     i = 0
     for w, n in enumerate(WORLD_SIZES):
         for _ in range(n):
             L[i].world = w + 1
-            L[i].quip = QUIPS[L[i].name]
+            L[i].quip = QUIPS.get(L[i].name, "")
             i += 1
+    assert i == len(L), (i, len(L))
 
 
 def emit(path):
@@ -337,6 +408,7 @@ def emit(path):
         out.append('\t\t"world": %d,' % l.world)
         out.append('\t\t"hint": %s,' % gd(l.hint))
         out.append('\t\t"quip": %s,' % gd(l.quip))
+        out.append('\t\t"diff": %.2f,' % l.diff)
         out.append('\t\t"signs": [%s],' % ", ".join(gd(s) for s in l.signs))
         out.append('\t\t"sol": [%s],' % ", ".join(gd(s) for s in l.sol))
         out.append('\t\t"map": [')
@@ -358,3 +430,5 @@ if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     emit(os.path.join(here, "..", "scripts", "level_data.gd"))
     print("levels:", len(L))
+    for i, l in enumerate(L):
+        print("%2d  w%d  %-20s  diff %6.2f" % (i + 1, l.world, l.name, l.diff))

@@ -5,7 +5,7 @@ const SAVE_PATH := "user://liars_level_save.json"
 const SKIN_NAMES := ["Cream", "Mint", "Coral", "Sky", "Gold", "Ghost"]
 const SKIN_COLORS := [Color("fff1d6"), Color("8cf5c6"), Color("ff8f8f"), Color("7cc8ff"), Color("ffd45e"), Color("d9d4ff")]
 const SKIN_SPRITES := [[9, 10], [0, 1], [4, 5], [2, 3], [6, 7], [0, 1]]   # Kenney astronaut frames per skin
-const SKIN_UNLOCK := [0, 3, 7, 12, 18, 24]   # levels cleared needed
+const SKIN_UNLOCK := [0, 6, 15, 25, 37, 50]   # levels cleared needed
 const SKIP_AFTER := 10
 
 var data := {}
@@ -15,6 +15,7 @@ var session_deaths := 0
 var complete_shot := ""   # dev: screenshot path after level-complete overlay
 var dev_pause_shot := ""
 var force_touch := false
+var dev_controls := false   # dev: open the controls editor on the menu
 var seed_ghost := false   # dev: save a ghost made by the test bot for the level being opened
 var hold_right := false   # dev: hero walks right by itself
 var state_shot := ""
@@ -32,8 +33,39 @@ func _defaults() -> void:
 	data = {"done": {}, "skipped": {}, "deaths": 0, "stars": {}, "skin": 0, "music": true, "sfx": true,
 		"streak": 0, "last_daily": -1, "best_streak": 0, "plays": 0, "level_deaths": {}, "ghosts": {}}
 
+## The 24 original levels in their old order. Saves are keyed by level index, and the level order changed when levels were
+## added and sorted by difficulty, so old saves are remapped by level NAME.
+const OLD_ORDER := ["Honest Start", "The Helpful Sign", "Wrong Door", "Greedy", "Bouncy Castle", "Fragile", "Shy Floor", "Thwomp Alley",
+	"Moving Day", "Checkpoint of Lies", "Invisible Wall", "Do Not Press", "Buzzsaw Boulevard", "Mirror Mirror", "Congratulations!",
+	"Door Dodger", "Coin Trail", "Skyward", "Collapsing Stairs", "Floor Is Lava", "Decoys", "Upside Down", "The Gauntlet", "The Liar"]
+const ORDER_VERSION := 2
+
+func _new_index(old_i: int) -> int:
+	if old_i < 0 or old_i >= OLD_ORDER.size():
+		return -1
+	for j in LevelData.LEVELS.size():
+		if String(LevelData.LEVELS[j].name) == OLD_ORDER[old_i]:
+			return j
+	return -1
+
+func migrate_order() -> void:
+	if int(data.get("order_v", 1)) >= ORDER_VERSION:
+		return
+	for key in ["done", "skipped", "stars", "level_deaths", "ghosts"]:
+		var old = data.get(key, {})
+		if not (old is Dictionary):
+			continue
+		var out := {}
+		for k in old:
+			var j := _new_index(int(k))
+			if j >= 0:
+				out[str(j)] = old[k]
+		data[key] = out
+	data["order_v"] = ORDER_VERSION
+
 func load_save() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
+		data["order_v"] = ORDER_VERSION
 		return
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
@@ -42,6 +74,7 @@ func load_save() -> void:
 	if parsed is Dictionary:
 		for k in parsed:
 			data[k] = parsed[k]
+		migrate_order()
 
 func save() -> void:
 	if autoplay:
@@ -67,7 +100,12 @@ func is_unlocked(i: int) -> bool:
 func cleared_count() -> int:
 	return data.done.size()
 
+## The level "Continue" opens: the first level you have neither cleared nor skipped.
+## (Skipped levels are only offered again once everything else is done, so Continue never drops you back on a level you just skipped.)
 func next_unfinished() -> int:
+	for i in level_count():
+		if not is_done(i) and not data.skipped.has(str(i)) and is_unlocked(i):
+			return i
 	for i in level_count():
 		if not is_done(i) and is_unlocked(i):
 			return i
@@ -123,6 +161,50 @@ func best_time(i: int) -> float:
 		return float(data.done[str(i)].time)
 	return -1.0
 
+# ---------------------------------------------------------------- on-screen control settings
+const CTRL_DEFAULT := {"scale": 1.0, "alpha": 0.35, "lefty": false, "pos": {}}
+
+func controls() -> Dictionary:
+	var c: Dictionary = CTRL_DEFAULT.duplicate(true)
+	var saved = data.get("controls", {})
+	if saved is Dictionary:
+		for k in saved:
+			c[k] = saved[k]
+	c.scale = clampf(float(c.scale), 0.7, 1.6)
+	c.alpha = clampf(float(c.alpha), 0.15, 0.8)
+	return c
+
+func set_controls(c: Dictionary) -> void:
+	data["controls"] = c
+	save()
+
+## Button centres in screen coordinates: {"l","r","j"} (+ the saved scale/alpha). Custom (dragged) positions are stored as
+## fractions of the screen so they survive different phone sizes.
+func touch_layout(screen: Vector2, override := {}) -> Dictionary:
+	var c: Dictionary = override if not override.is_empty() else controls()
+	var wide: bool = screen.x >= 1280.0 + 180.0
+	var l := Vector2(66, 598) if wide else Vector2(110, 540)
+	var r := Vector2(176, 598) if wide else Vector2(250, 540)
+	var j := Vector2(screen.x - 92, 580) if wide else Vector2(screen.x - 110, 520)
+	if bool(c.lefty):
+		var l2 := Vector2(screen.x - r.x, r.y)
+		var r2 := Vector2(screen.x - l.x, l.y)
+		j = Vector2(screen.x - j.x, j.y)
+		l = l2
+		r = r2
+	var pos: Dictionary = c.pos
+	for k in ["l", "r", "j"]:
+		if pos.has(k):
+			var f: Array = pos[k]
+			var p := Vector2(float(f[0]) * screen.x, float(f[1]) * screen.y)
+			if k == "l":
+				l = p
+			elif k == "r":
+				r = p
+			else:
+				j = p
+	return {"l": l, "r": r, "j": j, "scale": c.scale, "alpha": c.alpha}
+
 func skip_level(i: int) -> void:
 	data.skipped[str(i)] = true
 	save()
@@ -168,15 +250,16 @@ func total_stars() -> int:
 
 func rank() -> String:
 	var c := cleared_count()
-	if c >= 24:
+	var n := level_count()
+	if c >= n:
 		return "Master of Lies"
-	if c >= 19:
+	if c >= int(n * 0.8):
 		return "Lie Detector"
-	if c >= 13:
+	if c >= int(n * 0.55):
 		return "Professional Skeptic"
-	if c >= 7:
+	if c >= int(n * 0.3):
 		return "Trust Issues"
-	if c >= 2:
+	if c >= 3:
 		return "Slightly Suspicious"
 	return "Gullible"
 

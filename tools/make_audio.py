@@ -340,8 +340,59 @@ SCALES = {
 }
 
 
-def build_track(name, bpm, root, scale, chords, lead_wave="square", bass_wave="tri", style="bounce", bars=8, seed=1,
-                swing=0.0, lead_oct=1, drums="basic", arp=False, lead_vol=0.22, density=0.7):
+def pluck(midi, dur_steps, sp, vol=1.0):
+    """marimba / pizzicato: soft attack, fast decay, a little 2nd/3rd harmonic. Darker for higher notes."""
+    d = dur_steps * sp + 0.3
+    f = mtof(midi)
+    t = T(d)
+    k = 6.0 + (midi - 40) * 0.12
+    x = np.sin(2 * np.pi * f * t) + 0.35 * np.sin(2 * np.pi * 2 * f * t) * np.exp(-t * 18) + 0.12 * np.sin(2 * np.pi * 3 * f * t) * np.exp(-t * 28)
+    x *= np.exp(-t * k) * np.minimum(1.0, t / 0.004)
+    return x * vol
+
+
+def tuba(midi, dur_steps, sp, vol=1.0):
+    d = dur_steps * sp + 0.05
+    x = 0.7 * osc("tri", mtof(midi), d) + 0.5 * osc("sine", mtof(midi), d)
+    x = lowpass(x, 0.16)
+    return x * adsr(len(x), 0.012, 0.06, 0.55, 0.05) * vol
+
+
+def bassoon(midi, dur_steps, sp, vol=1.0, womp=0.0):
+    """muted deadpan lead: dark saw, slow vibrato, optional comic slide DOWN at the end (womp = semitones)"""
+    d = dur_steps * sp + 0.06
+    n = int(d * SR)
+    f = mtof(midi) * (1 + 0.005 * np.sin(2 * np.pi * 4.8 * T(d)))
+    if womp:
+        ramp = np.clip((np.arange(n) / SR - (d - 0.22)) / 0.2, 0, 1)
+        f = f[:n] * 2 ** (-(womp * ramp) / 12.0)
+    x = 0.8 * osc("saw", f, d) + 0.3 * osc("sine", f, d)
+    x = lowpass(x, 0.15)
+    return x * adsr(len(x), 0.03, 0.08, 0.7, 0.05) * vol
+
+
+def woodblock():
+    d = 0.07
+    t = T(d)
+    return (np.sin(2 * np.pi * 540 * t) + 0.6 * np.sin(2 * np.pi * 810 * t)) * np.exp(-t * 55) * 0.5
+
+
+def brush():
+    d = 0.08
+    n = int(d * SR)
+    x = lowpass(noise(d, 5), 0.5)
+    return x * decay(n, 30) * 0.3
+
+
+def soft_kick():
+    n = int(0.2 * SR)
+    f = 95 * np.exp(-np.arange(n) / SR * 18) + 45
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * decay(n, 14)
+
+
+def build_troll(name, bpm, root, scale, chords, bass="pizz", lead="bassoon", swing=0.0, seed=1, bars=8,
+                drums="tiptoe", density=0.65, lead_oct=0, lead_vol=0.9):
+    """Trolling music: deadpan low instruments, sneaky chromatic bass, comic slides, stop-time gaps. No bright leads."""
     rnd = random.Random(seed)
     q = Seq(bpm, bars, swing)
     sp = q.sp
@@ -350,96 +401,91 @@ def build_track(name, bpm, root, scale, chords, lead_wave="square", bass_wave="t
     def scale_note(deg, octave=0):
         return root + sc[deg % 7] + 12 * (deg // 7) + 12 * octave
 
-    # chords: list of (degree_root_semitone_offset, quality) per bar pair; here simple: semitone offsets of chord roots
     per_bar = []
     for c in chords:
         per_bar += [c] * (bars // len(chords))
     # ---- bass
     for b in range(bars):
-        cr = per_bar[b]
-        base = root + cr - 24
-        if style == "bounce":
-            pat = [(0, 2, 0), (2, 1, 12), (4, 2, 7), (6, 1, 12), (8, 2, 0), (10, 1, 7), (12, 2, 5 if b % 2 else 12), (14, 1, 7)]
-        elif style == "creep":
-            pat = [(0, 1, 0), (3, 1, 0), (4, 1, 7), (7, 1, 3), (8, 1, 0), (10, 1, 12), (12, 1, 7), (14, 1, 6)]
-        elif style == "walk":
-            pat = [(0, 2, 0), (3, 1, 7), (4, 2, 4), (7, 1, 7), (8, 2, 7), (11, 1, 4), (12, 2, 5), (14, 2, 6)]
-        else:  # drive
-            pat = [(i, 1, 12 if i % 4 == 2 else 0) for i in range(0, 16, 2)] + [(i, 1, 7) for i in range(1, 16, 4)]
-        for st, dur, off in pat:
-            x = voice(bass_wave, base + off, dur, sp, vol=0.55, a=0.003, d=0.05, s=0.4, r=0.03, lp=0.35 if bass_wave == "saw" else None)
+        base = root + per_bar[b] - 24
+        nxt = root + per_bar[(b + 1) % bars] - 24
+        stop = (b == bars - 1)          # stop-time: the last bar goes quiet for its last beat, then the loop restarts
+        if bass == "pizz":              # tiptoe walk, last note creeps in from a semitone below the next chord
+            notes = [(0, 2, base), (4, 2, base + 7), (8, 2, base + 12 if b % 2 else base + 5), (12, 2, nxt - 1)]
+        elif bass == "tick":            # nervous staccato with a wrong note
+            notes = [(i, 1, base + (1 if (i == 14 and b % 2) else 0)) for i in (0, 2, 4, 6, 8, 10, 12, 14) if not (i == 6 and b % 4 == 3)]
+        else:                           # tuba oompah
+            notes = [(0, 3, base), (8, 3, base + 7)]
+        for st, dur, m in notes:
+            if stop and st >= 12:
+                continue
+            x = tuba(m, dur, sp, 0.32) if bass == "tuba" else pluck(m, dur, sp, 0.34)
             q.add(b * 16 + st, x)
-    # ---- melody (motif A, answer B)
-    def motif(chord_root):
+        if bass == "tuba":              # off-beat chord stabs (low marimba chord)
+            for st in (4, 12):
+                if stop and st >= 12:
+                    continue
+                for iv in (0, 3 if scale != "maj" else 4, 7):
+                    q.add(b * 16 + st, pluck(base + 24 + iv, 2, sp, 0.3))
+
+    # ---- lead
+    def motif():
         steps = []
         pos = 0
-        deg = rnd.choice([0, 2, 4])
+        deg = rnd.choice([0, 2])
         while pos < 32:
-            dur = rnd.choice([1, 2, 2, 3, 4]) if density < 0.8 else rnd.choice([1, 1, 2, 2])
+            dur = rnd.choice([1, 2, 2, 3, 4])
             if rnd.random() > density and pos % 4 == 0:
                 pos += dur
                 continue
             deg += rnd.choice([-2, -1, -1, 0, 1, 1, 2])
-            deg = max(-2, min(9, deg))
+            deg = max(-3, min(4, deg))       # stays low
             steps.append((pos, dur, deg))
             pos += dur
         return steps
 
-    mA = motif(0)
-    mB = motif(0)
+    mA, mB = motif(), motif()
     phrases = [mA, mA, mB, mA]
     for p in range(bars // 2):
         ph = phrases[p % 4]
-        shift = 0
-        cr = per_bar[p * 2]
-        for st, dur, deg in ph:
-            # transpose motif with chord root loosely
-            sh = {0: 0, 1: 0}.get(0)
-            deg2 = deg + (1 if cr in (3, 5, 8) and rnd.random() < 0.3 else 0)
-            m = scale_note(deg2, lead_oct)
-            x = voice(lead_wave, m, dur, sp, vol=lead_vol, duty=0.25 if lead_wave == "square" else 0.5, vib=0.004 if dur >= 3 else 0.0,
-                      a=0.006, d=0.07, s=0.5, r=0.06)
+        last = len(ph) - 1
+        for i, (st, dur, deg) in enumerate(ph):
+            if p == bars // 2 - 1 and st >= 24:
+                continue                     # stop-time gap at the end of the loop
+            m = scale_note(deg, lead_oct)
+            if lead == "bassoon":
+                womp = 3.0 if (i == last and p % 2 == 1) else 0.0
+                x = bassoon(m, dur, sp, lead_vol, womp)
+            else:
+                x = pluck(m + 12, dur, sp, lead_vol * 1.1)
             q.add(p * 32 + st, x)
-    # ---- arpeggio shimmer
-    if arp:
-        for b in range(bars):
-            cr = per_bar[b]
-            ch = [0, 3 if scale in ("min", "phr", "hmin") else 4, 7, 12]
-            for i in range(16):
-                m = root + cr + ch[i % 4] + 12
-                x = voice("square", m, 1, sp, vol=0.07, duty=0.125, a=0.002, d=0.03, s=0.3, r=0.02)
-                q.add(b * 16 + i, x)
-    # ---- drums
-    kk, sn, ht, oh, cl = kick(sp), snare(), hat(), hat(True), clave()
+    # ---- percussion (soft, no snare crack)
+    kk, wb, br = soft_kick(), woodblock(), brush()
     for b in range(bars):
         for i in range(16):
             s = b * 16 + i
-            if drums == "basic":
-                if i in (0, 8):
-                    q.add(s, kk, 0.9)
-                if i in (4, 12):
-                    q.add(s, sn, 0.5)
-                if i % 2 == 0:
-                    q.add(s, ht, 0.35)
-                if i == 14:
-                    q.add(s, oh, 0.3)
-            elif drums == "sneak":  # sparse, off-beat claves, tiptoe feel
+            if b == bars - 1 and i >= 12:
+                continue
+            if drums == "tiptoe":
                 if i in (0, 10):
-                    q.add(s, kk, 0.8)
+                    q.add(s, kk, 0.55)
                 if i in (4, 12):
-                    q.add(s, cl, 0.9)
-                if i in (6, 14):
-                    q.add(s, ht, 0.5)
-                if i == 15 and b % 2:
-                    q.add(s, oh, 0.4)
-            elif drums == "drive":
+                    q.add(s, wb, 0.7)
+                if i % 2 == 0:
+                    q.add(s, br, 0.5)
+            elif drums == "march":
+                if i in (0, 8):
+                    q.add(s, kk, 0.6)
+                if i in (4, 12):
+                    q.add(s, wb, 0.8)
+                if i % 4 == 2:
+                    q.add(s, br, 0.5)
+            else:                            # "tick": nervous clock
                 if i % 4 == 0:
-                    q.add(s, kk, 0.95)
-                if i in (4, 12):
-                    q.add(s, sn, 0.6)
-                q.add(s, ht, 0.3 if i % 2 else 0.4)
-                if i == 7 and b % 2:
-                    q.add(s, sn, 0.3)
+                    q.add(s, wb, 0.55)
+                if i in (0, 8):
+                    q.add(s, kk, 0.45)
+                if i % 2 == 1:
+                    q.add(s, br, 0.4)
     return q.finish()
 
 
@@ -460,27 +506,20 @@ def master(x, peak=0.7):
 
 def make_music():
     T_ = {}
-    # menu: sneaky A minor
-    T_["music_menu"] = build_track("menu", 104, 57, "min", [0, 0, -4, -5], lead_wave="square", bass_wave="tri",
-                                   style="creep", seed=7, drums="sneak", lead_vol=0.2, density=0.6)
-    # world 1: cheery & mocking C major
-    T_["music_w1"] = build_track("w1", 126, 60, "maj", [0, -3, -7, -5], lead_wave="square", bass_wave="tri",
-                                 style="bounce", seed=21, drums="basic", lead_vol=0.2, density=0.75)
-    # world 2: tense D minor
-    T_["music_w2"] = build_track("w2", 138, 50, "min", [0, -4, -7, -2], lead_wave="square", bass_wave="saw",
-                                 style="drive", seed=33, drums="drive", arp=True, lead_vol=0.17, density=0.65)
-    # world 3: sly swing E phrygian-ish
-    T_["music_w3"] = build_track("w3", 108, 52, "phr", [0, -4, -7, -5], lead_wave="saw", bass_wave="tri",
-                                 style="walk", seed=45, swing=0.32, drums="sneak", lead_vol=0.14, density=0.7)
-    # world 4: frantic F# minor
-    T_["music_w4"] = build_track("w4", 152, 54, "hmin", [0, -4, -7, -2], lead_wave="square", bass_wave="saw",
-                                 style="drive", seed=58, drums="drive", arp=True, lead_vol=0.17, density=0.8)
-    # world 5: dark, glitchy, detuned
-    T_["music_w5"] = build_track("w5", 144, 53, "phr", [0, -1, -5, -7], lead_wave="saw", bass_wave="saw",
-                                 style="creep", seed=88, drums="drive", arp=True, lead_vol=0.15, density=0.8)
-    # finale: the liar's theme
-    T_["music_boss"] = build_track("boss", 164, 48, "hmin", [0, -2, -4, -5], lead_wave="saw", bass_wave="saw",
-                                   style="drive", seed=71, drums="drive", arp=True, lead_vol=0.14, density=0.85)
+    # menu: tiptoeing, innocent-looking (A minor, muted bassoon over pizzicato)
+    T_["music_menu"] = build_troll("menu", 96, 57, "min", [0, 0, -4, -5], bass="pizz", lead="bassoon", seed=7, drums="tiptoe", density=0.55)
+    # world 1: "totally safe" lounge in F major, marimba
+    T_["music_w1"] = build_troll("w1", 108, 53, "maj", [0, -5, -3, -7], bass="pizz", lead="marimba", seed=21, swing=0.18, drums="tiptoe", density=0.6)
+    # world 2: nervous clock in D minor
+    T_["music_w2"] = build_troll("w2", 118, 50, "min", [0, -4, -7, -2], bass="tick", lead="bassoon", seed=33, drums="tick", density=0.6)
+    # world 3: slippery swing (E phrygian)
+    T_["music_w3"] = build_troll("w3", 100, 52, "phr", [0, -4, -7, -5], bass="pizz", lead="bassoon", seed=45, swing=0.34, drums="tiptoe", density=0.65)
+    # world 4: clumsy chaos march (F# harmonic minor), tuba oompah
+    T_["music_w4"] = build_troll("w4", 128, 54, "hmin", [0, -4, -7, -2], bass="tuba", lead="marimba", seed=58, drums="march", density=0.7)
+    # world 5: dark comedy (slow, creeping)
+    T_["music_w5"] = build_troll("w5", 90, 53, "phr", [0, -1, -5, -7], bass="tick", lead="bassoon", seed=88, drums="tick", density=0.5)
+    # finale: the Liar's circus march
+    T_["music_boss"] = build_troll("boss", 118, 48, "hmin", [0, -2, -4, -5], bass="tuba", lead="bassoon", seed=71, drums="march", density=0.75, lead_vol=1.0)
     for k, v in T_.items():
         save(k, master(v), peak=0.62)
 

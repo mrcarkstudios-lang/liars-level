@@ -62,6 +62,12 @@ func _ready() -> void:
 	btn_sfx.position = Vector2(388, 580)
 	btn_sfx.pressed.connect(_on_sfx)
 	add_child(btn_sfx)
+	var btn_ctl := UI.art_button("CONTROLS", "btn_small_blue", Vector2(130, 52), 18)
+	btn_ctl.position = Vector2(646, 580)
+	btn_ctl.pressed.connect(func():
+		var ed := ControlsEditor.new()
+		add_child(ed))
+	add_child(btn_ctl)
 	btn_ads = UI.art_button("REMOVE ADS", "btn_small_green", Vector2(150, 52), 18)
 	btn_ads.position = Vector2(488, 580)
 	btn_ads.pressed.connect(func():
@@ -69,6 +75,8 @@ func _ready() -> void:
 		btn_ads.visible = false)
 	add_child(btn_ads)
 	btn_ads.visible = Ads.billing_available() and not Ads.ads_removed()
+	if Game.dev_controls:
+		add_child(ControlsEditor.new())
 	if OS.is_debug_build() and OS.get_name() == "Android":   # debug-only ad test panel (never in release builds)
 		var tr := UI.art_button("TEST REWARDED", "btn_small_pink", Vector2(190, 46), 16)
 		tr.position = Vector2(1060, 520)
